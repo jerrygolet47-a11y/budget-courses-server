@@ -1,5 +1,20 @@
-# Contrat de données
+# Contrat
 
-Un prix vérifié doit être lié à une source officielle et comporter au minimum : id, name, category, price, currency, sourceUrl, updatedAt.
+Location:
+- id, name, postalCode, city, address
+- officialUrl
+- officialSelectionUrl
+- mode
+- requiresOfficialSelection
 
-Quand le prix local officiel n'est pas vérifiable, price reste null. Aucune estimation ne doit être présentée comme un prix réel.
+Product:
+- id, ean, name, brand, packSize
+- price (number|null)
+- unitPrice (string|null)
+- currency
+- verified
+- sourceUrl
+- updatedAt
+- availability
+
+Règle absolue: un prix inconnu reste null.

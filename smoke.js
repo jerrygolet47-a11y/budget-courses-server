@@ -1,0 +1,1 @@
+const a=["aldi","lidl","carrefour","leclerc","intermarche","superu","auchan"];for(const id of a){const x=require("./adapters/"+id);if(!x.name||typeof x.getLocations!=="function"||typeof x.getProducts!=="function")throw Error("Connecteur invalide: "+id)}console.log("OK: 7 connecteurs charges.");

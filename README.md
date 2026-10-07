@@ -1,16 +1,25 @@
-# Budget Courses — Server
+# Budget Courses Server — final
 
-Serveur Node.js/Express pour l'application Budget Courses.
+Le serveur sépare chaque enseigne et impose le contexte magasin/Drive avant le catalogue.
 
-## Démarrage
-npm install
-npm start
+## Endpoints
 
-## Vérification
 GET /api/health
+GET /api/stores
+GET /api/stores/:store/locations?postalCode=76000&city=Rouen
+GET /api/stores/:store/locations/:locationId/categories
+GET /api/stores/:store/locations/:locationId/products?q=lait
+GET /api/smoke?q=lait
 
-## Magasins
-Auchan, Intermarché, Super U, ALDI, Lidl, Carrefour et E.Leclerc.
+## Fiabilité
 
-## Prix
-Aucun prix n'est inventé. Tant qu'un prix officiel correspondant au magasin/Drive et au contexte local n'est pas vérifié, `price` reste `null`.
+- Aucun prix inventé.
+- `verified:true` uniquement si un prix réel a été extrait d'une source officielle.
+- Pour une enseigne qui exige une session/catalogue magasin côté navigateur, l'API renvoie `requiresOfficialSelection:true` et le lien officiel de sélection.
+- Le serveur ne contourne ni CAPTCHA, ni anti-bot, ni connexion.
+- Le front-end peut utiliser `officialSelectionUrl` pour faire choisir le Drive à l'utilisateur.
+
+## Render
+
+Build: `npm install`
+Start: `node index.js`
