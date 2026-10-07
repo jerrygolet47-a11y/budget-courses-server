@@ -1,4 +1,3 @@
-```javascript
 const express = require("express");
 const cors = require("cors");
 const cheerio = require("cheerio");
@@ -14,50 +13,54 @@ const STORES = [
     id: "auchan",
     name: "Auchan",
     officialUrl: "https://www.auchan.fr/courses",
-    search: q =>
-      `https://www.auchan.fr/recherche?text=${encodeURIComponent(q)}`
+    search: (q) =>
+      "https://www.auchan.fr/recherche?text=" + encodeURIComponent(q)
   },
   {
     id: "intermarche",
     name: "Intermarché",
     officialUrl: "https://www.intermarche.com/",
-    search: q =>
-      `https://www.intermarche.com/recherche?text=${encodeURIComponent(q)}`
+    search: (q) =>
+      "https://www.intermarche.com/recherche?text=" + encodeURIComponent(q)
   },
   {
     id: "superu",
     name: "Super U",
     officialUrl: "https://www.coursesu.com/drive-france",
-    search: q =>
-      `https://www.coursesu.com/recherche?q=${encodeURIComponent(q)}&lang=fr_FR`
+    search: (q) =>
+      "https://www.coursesu.com/recherche?q=" +
+      encodeURIComponent(q) +
+      "&lang=fr_FR"
   },
   {
     id: "aldi",
     name: "ALDI",
     officialUrl: "https://www.aldi.fr/liste-de-courses.html",
-    search: q =>
-      `https://www.aldi.fr/recherche.html?query=${encodeURIComponent(q)}`
+    search: (q) =>
+      "https://www.aldi.fr/liste-de-courses.html?search=" +
+      encodeURIComponent(q)
   },
   {
     id: "lidl",
     name: "Lidl",
     officialUrl: "https://www.lidl.fr/online",
-    search: q =>
-      `https://www.lidl.fr/q/query/${encodeURIComponent(q)}`
+    search: (q) =>
+      "https://www.lidl.fr/q/query/" + encodeURIComponent(q)
   },
   {
     id: "carrefour",
     name: "Carrefour",
     officialUrl: "https://www.carrefour.fr/services/drive",
-    search: q =>
-      `https://www.carrefour.fr/s?q=${encodeURIComponent(q)}`
+    search: (q) =>
+      "https://www.carrefour.fr/s?q=" + encodeURIComponent(q)
   },
   {
     id: "leclerc",
     name: "E.Leclerc",
     officialUrl: "https://www.leclercdrive.fr/",
-    search: q =>
-      `https://www.leclercdrive.fr/recherche.aspx?search=${encodeURIComponent(q)}`
+    search: (q) =>
+      "https://www.leclercdrive.fr/recherche.aspx?search=" +
+      encodeURIComponent(q)
   }
 ];
 
@@ -78,17 +81,15 @@ const CATEGORIES = [
   "Animalerie"
 ];
 
-const cache = new Map();
 const CACHE_MS = 5 * 60 * 1000;
+const cache = new Map();
 
-function store(id) {
-  return STORES.find(x => x.id === id);
+function getStore(id) {
+  return STORES.find((store) => store.id === id);
 }
 
 function clean(value) {
-  return String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
 function normalize(value) {
@@ -107,15 +108,9 @@ function parsePrice(value) {
     /(?:^|\s)(\d{1,3}(?:[ .]\d{3})*(?:\.\d{1,2})?)\s*€/
   );
 
-  if (!match) {
-    return null;
-  }
+  if (!match) return null;
 
-  const number = Number(
-    match[1]
-      .replace(/\s/g, "")
-      .replace(",", ".")
-  );
+  const number = Number(match[1].replace(/\s/g, ""));
 
   return Number.isFinite(number) ? number : null;
 }
@@ -126,12 +121,10 @@ function parseUnitPrice(value) {
     .replace(",", ".");
 
   const match = text.match(
-    /(?:KG|L)\s*=\s*(\d+(?:\.\d{1,2})?)/i
+    /(\d+(?:\.\d{1,2})?)\s*€?\s*\/\s*(KG|L)\b/i
   );
 
-  if (!match) {
-    return null;
-  }
+  if (!match) return null;
 
   const number = Number(match[1]);
 
@@ -142,29 +135,22 @@ function parsePackSize(value) {
   const text = clean(value);
 
   const match = text.match(
-    /(?:\d+(?:[.,]\d+)?\s?(?:KG|G|MG|L|CL|ML)|\d+\s?X\s?\d+(?:[.,]\d+)?\s?(?:L|CL|ML|G|KG))/i
+    /\b\d+(?:[.,]\d+)?\s?(?:KG|G|MG|L|CL|ML)\b/i
   );
 
   return match ? match[0] : null;
 }
 
 function addProduct(output, product, sourceUrl) {
-  if (!product || !product.name) {
-    return;
-  }
+  if (!product || !product.name) return;
 
-  if (
-    product.price == null ||
-    !Number.isFinite(product.price)
-  ) {
+  if (product.price == null || !Number.isFinite(product.price)) {
     return;
   }
 
   const name = clean(product.name);
 
-  if (name.length < 2) {
-    return;
-  }
+  if (name.length < 2) return;
 
   const key =
     normalize(name) +
@@ -173,51 +159,23 @@ function addProduct(output, product, sourceUrl) {
     "|" +
     (product.packSize || "");
 
-  if (output.some(item => item.key === key)) {
-    return;
-  }
+  if (output.some((item) => item.key === key)) return;
 
   output.push({
-    id: Buffer.from(
-      sourceUrl + "|" + name
-    )
+    id: Buffer.from(sourceUrl + "|" + name)
       .toString("base64url")
       .slice(0, 48),
-
     name,
-
     brand: product.brand || null,
-
-    category:
-      product.category ||
-      "Non classé",
-
-    packSize:
-      product.packSize ||
-      null,
-
-    price:
-      product.price,
-
-    unitPrice:
-      product.unitPrice ??
-      null,
-
+    category: product.category || "Non classé",
+    packSize: product.packSize || null,
+    price: product.price,
+    unitPrice: product.unitPrice ?? null,
     currency: "EUR",
-
-    promotion:
-      product.promotion ||
-      null,
-
-    available:
-      product.available ??
-      null,
-
+    promotion: product.promotion || null,
+    available: product.available ?? null,
     sourceUrl,
-
-    updatedAt:
-      new Date().toISOString(),
-
+    updatedAt: new Date().toISOString(),
     key
   });
 }
@@ -227,20 +185,13 @@ function parseJsonLd($, output, sourceUrl) {
     try {
       const raw = $(element).text();
 
-      if (!raw) {
-        return;
-      }
+      if (!raw) return;
 
       const data = JSON.parse(raw);
-
-      const objects = Array.isArray(data)
-        ? data
-        : [data];
+      const objects = Array.isArray(data) ? data : [data];
 
       for (const object of objects) {
-        if (!object) {
-          continue;
-        }
+        if (!object) continue;
 
         const products = [];
 
@@ -251,9 +202,7 @@ function parseJsonLd($, output, sourceUrl) {
           products.push(object);
         }
 
-        if (
-          Array.isArray(object.itemListElement)
-        ) {
+        if (Array.isArray(object.itemListElement)) {
           for (const item of object.itemListElement) {
             if (item && item.item) {
               products.push(item.item);
@@ -275,10 +224,7 @@ function parseJsonLd($, output, sourceUrl) {
 
           const price = Number(rawPrice);
 
-          if (
-            product.name &&
-            Number.isFinite(price)
-          ) {
+          if (product.name && Number.isFinite(price)) {
             addProduct(
               output,
               {
@@ -295,12 +241,12 @@ function parseJsonLd($, output, sourceUrl) {
         }
       }
     } catch (_) {
-      // JSON-LD non exploitable : on continue
+      // Donnée JSON-LD non exploitable.
     }
   });
 }
 
-function parseAldiCards($, output, sourceUrl) {
+function parseProductCards($, output, sourceUrl) {
   const selectors = [
     "article",
     "li",
@@ -314,17 +260,13 @@ function parseAldiCards($, output, sourceUrl) {
     const card = $(element);
     const text = clean(card.text());
 
-    if (!text) {
-      return;
-    }
+    if (!text) return;
 
     const price = parsePrice(text);
 
-    if (price == null) {
-      return;
-    }
+    if (price == null) return;
 
-    let name = clean(
+    const name = clean(
       card
         .find(
           "h1,h2,h3,h4,h5,[class*='name'],[class*='Name'],[class*='title'],[class*='Title']"
@@ -333,43 +275,15 @@ function parseAldiCards($, output, sourceUrl) {
         .text()
     );
 
-    if (!name) {
-      const lines = text
-        .split(/\n+/)
-        .map(clean)
-        .filter(Boolean);
-
-      name =
-        lines.find(line => {
-          const n = normalize(line);
-
-          return (
-            n.length >= 3 &&
-            !n.includes("kg =") &&
-            !n.includes("l =") &&
-            !n.includes("prix") &&
-            !/^\d+(?:[.,]\d+)?\s*€?$/.test(line)
-          );
-        }) || "";
-    }
-
-    if (!name) {
-      return;
-    }
-
-    const unitPrice =
-      parseUnitPrice(text);
-
-    const packSize =
-      parsePackSize(text);
+    if (!name) return;
 
     addProduct(
       output,
       {
         name,
         price,
-        unitPrice,
-        packSize
+        unitPrice: parseUnitPrice(text),
+        packSize: parsePackSize(text)
       },
       sourceUrl
     );
@@ -379,51 +293,31 @@ function parseAldiCards($, output, sourceUrl) {
 async function fetchPage(url) {
   const response = await fetch(url, {
     headers: {
-      "user-agent":
-        "BudgetCoursesOfficialSource/3.0",
-      "accept":
+      "user-agent": "BudgetCoursesOfficialSource/3.0",
+      accept:
         "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "accept-language":
-        "fr-FR,fr;q=0.9,en;q=0.7"
+      "accept-language": "fr-FR,fr;q=0.9,en;q=0.7"
     }
   });
 
   if (!response.ok) {
-    throw new Error(
-      "HTTP " + response.status
-    );
+    throw new Error("HTTP " + response.status);
   }
 
-  return await response.text();
+  return response.text();
 }
 
-/*
- * ALDI :
- *
- * Les pages officielles de catégories contiennent
- * réellement les produits et leurs prix.
- *
- * On utilise plusieurs pages officielles plutôt qu'une
- * seule page générique de recherche.
- */
+/* Sources officielles ALDI */
 const ALDI_CATEGORY_PAGES = [
   "https://www.aldi.fr/produits/produits-laitiers/creme-beurre.html",
   "https://www.aldi.fr/produits/produits-laitiers/fromage-a-tartiner.html",
   "https://www.aldi.fr/produits/produits-laitiers/fromage-rape-tranche.html",
   "https://www.aldi.fr/produits/epicerie-salee.html",
   "https://www.aldi.fr/produits/epicerie-sucree.html",
-  "https://www.aldi.fr/produits/boissons.html",
-  "https://www.aldi.fr/produits/entretien/nettoyant-desordorissant.html"
+  "https://www.aldi.fr/produits/boissons.html"
 ];
 
-/*
- * Fiches ALDI officielles connues.
- *
- * IMPORTANT :
- * On ne met PAS les prix en dur.
- * Le serveur lit toujours le prix directement
- * sur la fiche officielle.
- */
+/* Fiches produits officielles ALDI */
 const ALDI_OFFICIAL_PRODUCTS = [
   {
     keywords: ["lait", "demi ecreme"],
@@ -449,35 +343,18 @@ async function fetchAldiProductPage(url) {
 
   parseJsonLd($, output, url);
 
-  const pageText = clean(
-    $("body").text()
-  );
+  const bodyText = clean($("body").text());
+  const title = clean($("h1").first().text());
+  const price = parsePrice(bodyText);
 
-  const title = clean(
-    $("h1").first().text()
-  );
-
-  const price = parsePrice(
-    pageText
-  );
-
-  if (
-    title &&
-    price != null
-  ) {
-    const unitPrice =
-      parseUnitPrice(pageText);
-
-    const packSize =
-      parsePackSize(pageText);
-
+  if (title && price != null) {
     addProduct(
       output,
       {
         name: title,
         price,
-        unitPrice,
-        packSize
+        unitPrice: parseUnitPrice(bodyText),
+        packSize: parsePackSize(bodyText)
       },
       url
     );
@@ -487,35 +364,17 @@ async function fetchAldiProductPage(url) {
 }
 
 async function fetchAldi(query) {
-  const normalizedQuery =
-    normalize(query);
-
+  const normalizedQuery = normalize(query);
   const output = [];
 
-  /*
-   * 1. Pages officielles de rayons.
-   */
-  for (
-    const url of ALDI_CATEGORY_PAGES
-  ) {
+  /* Pages officielles de catégories */
+  for (const url of ALDI_CATEGORY_PAGES) {
     try {
-      const html =
-        await fetchPage(url);
+      const html = await fetchPage(url);
+      const $ = cheerio.load(html);
 
-      const $ =
-        cheerio.load(html);
-
-      parseJsonLd(
-        $,
-        output,
-        url
-      );
-
-      parseAldiCards(
-        $,
-        output,
-        url
-      );
+      parseJsonLd($, output, url);
+      parseProductCards($, output, url);
     } catch (error) {
       console.log(
         "ALDI category unavailable:",
@@ -525,44 +384,19 @@ async function fetchAldi(query) {
     }
   }
 
-  /*
-   * 2. Fiches produits officielles ciblées.
-   *
-   * Cela permet notamment de retrouver
-   * "lait" même si la page catégorie est
-   * rendue différemment par le serveur.
-   */
-  const matchingPages =
-    ALDI_OFFICIAL_PRODUCTS.filter(
-      item =>
-        item.keywords.some(keyword =>
-          normalizedQuery.includes(
-            normalize(keyword)
-          )
-        ) ||
-        normalizedQuery ===
-          normalize(
-            item.keywords.join(" ")
-          )
+  /* Fiches officielles ciblées */
+  const matchingPages = ALDI_OFFICIAL_PRODUCTS.filter((item) => {
+    return item.keywords.some((keyword) =>
+      normalizedQuery.includes(normalize(keyword))
     );
+  });
 
-  for (
-    const item of matchingPages
-  ) {
+  for (const item of matchingPages) {
     try {
-      const products =
-        await fetchAldiProductPage(
-          item.url
-        );
+      const products = await fetchAldiProductPage(item.url);
 
-      for (
-        const product of products
-      ) {
-        addProduct(
-          output,
-          product,
-          product.sourceUrl
-        );
+      for (const product of products) {
+        addProduct(output, product, product.sourceUrl);
       }
     } catch (error) {
       console.log(
@@ -573,48 +407,29 @@ async function fetchAldi(query) {
     }
   }
 
-  /*
-   * 3. Filtrage final.
-   *
-   * On ne garde que les produits dont
-   * le nom correspond réellement à la recherche.
-   */
-  const filtered =
-    output.filter(product => {
-      const name =
-        normalize(product.name);
+  /* Filtrage */
+  const words = normalizedQuery
+    .split(/\s+/)
+    .filter(Boolean);
 
-      const words =
-        normalizedQuery
-          .split(/\s+/)
-          .filter(Boolean);
+  const filtered = output.filter((product) => {
+    const name = normalize(product.name);
 
-      return words.every(word =>
-        name.includes(word)
-      );
-    });
+    return words.every((word) => name.includes(word));
+  });
 
-  /*
-   * Suppression de la clé interne.
-   */
-  const products =
-    filtered
-      .slice(0, 100)
-      .map(
-        ({ key, ...product }) =>
-          product
-      );
+  const products = filtered
+    .slice(0, 100)
+    .map(({ key, ...product }) => product);
 
   return {
-    verified:
-      products.length > 0,
+    verified: products.length > 0,
 
     sourceUrl:
       products[0]?.sourceUrl ||
       "https://www.aldi.fr/liste-de-courses.html",
 
-    updatedAt:
-      new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
 
     products,
 
@@ -626,96 +441,54 @@ async function fetchAldi(query) {
 }
 
 async function fetchOfficial(storeInfo, query) {
-  /*
-   * ALDI possède son connecteur dédié.
-   */
-  if (
-    storeInfo.id === "aldi"
-  ) {
-    const cacheKey =
-      "aldi|" +
-      normalize(query);
-
-    const cached =
-      cache.get(cacheKey);
+  /* Connecteur ALDI */
+  if (storeInfo.id === "aldi") {
+    const cacheKey = "aldi|" + normalize(query);
+    const cached = cache.get(cacheKey);
 
     if (
       cached &&
-      Date.now() - cached.time <
-        CACHE_MS
+      Date.now() - cached.time < CACHE_MS
     ) {
       return cached.data;
     }
 
-    const data =
-      await fetchAldi(query);
+    const data = await fetchAldi(query);
 
-    cache.set(
-      cacheKey,
-      {
-        time: Date.now(),
-        data
-      }
-    );
+    cache.set(cacheKey, {
+      time: Date.now(),
+      data
+    });
 
     return data;
   }
 
-  /*
-   * Autres enseignes :
-   * extraction prudente uniquement.
-   */
-  const url =
-    storeInfo.search(query);
-
-  const cached =
-    cache.get(url);
+  /* Connecteur générique prudent pour les autres enseignes */
+  const url = storeInfo.search(query);
+  const cached = cache.get(url);
 
   if (
     cached &&
-    Date.now() - cached.time <
-      CACHE_MS
+    Date.now() - cached.time < CACHE_MS
   ) {
     return cached.data;
   }
 
-  const html =
-    await fetchPage(url);
-
-  const $ =
-    cheerio.load(html);
-
+  const html = await fetchPage(url);
+  const $ = cheerio.load(html);
   const output = [];
 
-  parseJsonLd(
-    $,
-    output,
-    url
-  );
-
-  parseAldiCards(
-    $,
-    output,
-    url
-  );
+  parseJsonLd($, output, url);
+  parseProductCards($, output, url);
 
   const data = {
-    verified:
-      output.length > 0,
+    verified: output.length > 0,
+    sourceUrl: url,
+    updatedAt: new Date().toISOString(),
 
-    sourceUrl:
-      url,
-
-    updatedAt:
-      new Date().toISOString(),
-
-    products:
-      output
-        .slice(0, 100)
-        .map(
-          ({ key, ...product }) =>
-            product
-        ),
+    products: output
+      .slice(0, 100)
+      .map(({ key, ...product }) => product),
 
     message:
       output.length > 0
@@ -723,92 +496,59 @@ async function fetchOfficial(storeInfo, query) {
         : "La page officielle ne fournit pas de prix exploitables sans contexte magasin/session."
   };
 
-  cache.set(
-    url,
-    {
-      time: Date.now(),
-      data
-    }
-  );
+  cache.set(url, {
+    time: Date.now(),
+    data
+  });
 
   return data;
 }
 
-app.get(
-  "/api/health",
-  (_, response) => {
-    response.json({
-      ok: true,
-      service:
-        "budget-courses-server",
-      version:
-        "3.0.0",
-      sources:
-        "official-only",
-      time:
-        new Date().toISOString()
-    });
-  }
-);
+/* Santé du serveur */
+app.get("/api/health", (_, response) => {
+  response.json({
+    ok: true,
+    service: "budget-courses-server",
+    version: "3.0.0",
+    sources: "official-only",
+    time: new Date().toISOString()
+  });
+});
 
-app.get(
-  "/api/stores",
-  (_, response) => {
-    response.json(
-      STORES.map(
-        ({
-          id,
-          name,
-          officialUrl
-        }) => ({
-          id,
-          name,
-          officialUrl
-        })
-      )
-    );
-  }
-);
+/* Liste des magasins */
+app.get("/api/stores", (_, response) => {
+  response.json(
+    STORES.map(({ id, name, officialUrl }) => ({
+      id,
+      name,
+      officialUrl
+    }))
+  );
+});
 
+/* Recherche de magasin */
 app.get(
   "/api/stores/:store/locations",
   (request, response) => {
-    const storeInfo =
-      store(
-        request.params.store
-      );
+    const storeInfo = getStore(request.params.store);
 
     if (!storeInfo) {
-      return response
-        .status(404)
-        .json({
-          error:
-            "store_not_found"
-        });
+      return response.status(404).json({
+        error: "store_not_found"
+      });
     }
 
     response.json([
       {
-        id:
-          storeInfo.id +
-          "-official",
-
-        storeId:
-          storeInfo.id,
-
-        name:
-          storeInfo.name +
-          " — recherche officielle",
+        id: storeInfo.id + "-official",
+        storeId: storeInfo.id,
+        name: storeInfo.name + " — recherche officielle",
 
         postalCode:
-          clean(
-            request.query.postalCode
-          ),
+          clean(request.query.postalCode),
 
         city:
-          clean(
-            request.query.city
-          ),
+          clean(request.query.city),
 
         verified: false,
 
@@ -822,53 +562,36 @@ app.get(
   }
 );
 
+/* Catégories */
 app.get(
   "/api/stores/:store/locations/:locationId/categories",
   (request, response) => {
-    const storeInfo =
-      store(
-        request.params.store
-      );
+    const storeInfo = getStore(request.params.store);
 
     if (!storeInfo) {
-      return response
-        .status(404)
-        .json({
-          error:
-            "store_not_found"
-        });
+      return response.status(404).json({
+        error: "store_not_found"
+      });
     }
 
-    response.json(
-      CATEGORIES
-    );
+    response.json(CATEGORIES);
   }
 );
 
+/* Produits */
 app.get(
   "/api/stores/:store/locations/:locationId/products",
-  async (
-    request,
-    response
-  ) => {
-    const storeInfo =
-      store(
-        request.params.store
-      );
+  async (request, response) => {
+    const storeInfo = getStore(request.params.store);
 
     if (!storeInfo) {
-      return response
-        .status(404)
-        .json({
-          error:
-            "store_not_found"
-        });
+      return response.status(404).json({
+        error: "store_not_found"
+      });
     }
 
     const query =
-      clean(
-        request.query.q
-      ) || "lait";
+      clean(request.query.q) || "lait";
 
     try {
       const data =
@@ -878,14 +601,10 @@ app.get(
         );
 
       response.json({
-        store:
-          storeInfo.id,
-
+        store: storeInfo.id,
         locationId:
           request.params.locationId,
-
         query,
-
         ...data
       });
     } catch (error) {
@@ -894,32 +613,26 @@ app.get(
         error
       );
 
-      response
-        .status(502)
-        .json({
-          error:
-            "official_source_unavailable",
+      response.status(502).json({
+        error:
+          "official_source_unavailable",
 
-          store:
-            storeInfo.id,
+        store:
+          storeInfo.id,
 
-          message:
-            "La source officielle est indisponible ou nécessite une session/magasin.",
+        message:
+          "La source officielle est indisponible ou nécessite une session/magasin.",
 
-          sourceUrl:
-            storeInfo.search(query)
-        });
+        sourceUrl:
+          storeInfo.search(query)
+      });
     }
   }
 );
 
-app.listen(
-  PORT,
-  () => {
-    console.log(
-      "Budget Courses server listening on port " +
-        PORT
-    );
-  }
-);
-```
+app.listen(PORT, () => {
+  console.log(
+    "Budget Courses server listening on port " +
+      PORT
+  );
+});
