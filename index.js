@@ -1,116 +1,925 @@
-const express=require("express"),cors=require("cors"),cheerio=require("cheerio");
-const app=express(),PORT=process.env.PORT||3000;
-app.use(cors()); app.use(express.json());
+```javascript
+const express = require("express");
+const cors = require("cors");
+const cheerio = require("cheerio");
 
-const STORES=[
-{id:"auchan",name:"Auchan",officialUrl:"https://www.auchan.fr/courses",search:q=>`https://www.auchan.fr/recherche?text=${encodeURIComponent(q)}`},
-{id:"intermarche",name:"Intermarché",officialUrl:"https://www.intermarche.com/",search:q=>`https://www.intermarche.com/recherche?text=${encodeURIComponent(q)}`},
-{id:"superu",name:"Super U",officialUrl:"https://www.coursesu.com/drive-france",search:q=>`https://www.coursesu.com/recherche?q=${encodeURIComponent(q)}&lang=fr_FR`},
-{id:"aldi",name:"ALDI",officialUrl:"https://www.aldi.fr/liste-de-courses.html",search:q=>`https://www.aldi.fr/liste-de-courses.html?search=${encodeURIComponent(q)}`},
-{id:"lidl",name:"Lidl",officialUrl:"https://www.lidl.fr/online",search:q=>`https://www.lidl.fr/q/query/${encodeURIComponent(q)}`},
-{id:"carrefour",name:"Carrefour",officialUrl:"https://www.carrefour.fr/services/drive",search:q=>`https://www.carrefour.fr/s?q=${encodeURIComponent(q)}`},
-{id:"leclerc",name:"E.Leclerc",officialUrl:"https://www.leclercdrive.fr/",search:q=>`https://www.leclercdrive.fr/recherche.aspx?search=${encodeURIComponent(q)}`}
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(cors());
+app.use(express.json());
+
+const STORES = [
+  {
+    id: "auchan",
+    name: "Auchan",
+    officialUrl: "https://www.auchan.fr/courses",
+    search: q =>
+      `https://www.auchan.fr/recherche?text=${encodeURIComponent(q)}`
+  },
+  {
+    id: "intermarche",
+    name: "Intermarché",
+    officialUrl: "https://www.intermarche.com/",
+    search: q =>
+      `https://www.intermarche.com/recherche?text=${encodeURIComponent(q)}`
+  },
+  {
+    id: "superu",
+    name: "Super U",
+    officialUrl: "https://www.coursesu.com/drive-france",
+    search: q =>
+      `https://www.coursesu.com/recherche?q=${encodeURIComponent(q)}&lang=fr_FR`
+  },
+  {
+    id: "aldi",
+    name: "ALDI",
+    officialUrl: "https://www.aldi.fr/liste-de-courses.html",
+    search: q =>
+      `https://www.aldi.fr/recherche.html?query=${encodeURIComponent(q)}`
+  },
+  {
+    id: "lidl",
+    name: "Lidl",
+    officialUrl: "https://www.lidl.fr/online",
+    search: q =>
+      `https://www.lidl.fr/q/query/${encodeURIComponent(q)}`
+  },
+  {
+    id: "carrefour",
+    name: "Carrefour",
+    officialUrl: "https://www.carrefour.fr/services/drive",
+    search: q =>
+      `https://www.carrefour.fr/s?q=${encodeURIComponent(q)}`
+  },
+  {
+    id: "leclerc",
+    name: "E.Leclerc",
+    officialUrl: "https://www.leclercdrive.fr/",
+    search: q =>
+      `https://www.leclercdrive.fr/recherche.aspx?search=${encodeURIComponent(q)}`
+  }
 ];
-const CATEGORIES=["Fruits & légumes","Viandes & poissons","Crèmerie","Charcuterie & traiteur","Surgelés","Bébé","Épicerie salée","Épicerie sucrée","Boissons","Pains & pâtisseries","Bio & écologie","Entretien","Maison","Animalerie"];
-const cache=new Map(),CACHE_MS=300000;
-const store=id=>STORES.find(x=>x.id===id);
-const clean=x=>String(x||"").replace(/\s+/g," ").trim();
-function price(s){const m=clean(s).replace(",",".").match(/(\d{1,3}(?:[ .]\d{3})*(?:[.,]\d{1,2})?)\s*€/);if(!m)return null;const n=Number(m[1].replace(/\s/g,"").replace(",","."));return Number.isFinite(n)?n:null}
-function add(out,p,url){if(!p.name||p.price==null||!Number.isFinite(p.price))return;const name=clean(p.name),key=name.toLowerCase()+"|"+p.price;if(out.some(x=>x.key===key))return;out.push({id:Buffer.from(url+"|"+name).toString("base64url").slice(0,40),name,brand:p.brand||null,category:p.category||"Non classé",packSize:p.packSize||null,price:p.price,unitPrice:null,currency:"EUR",promotion:null,available:null,sourceUrl:url,updatedAt:new Date().toISOString(),key})}
-function jsonld($,out,url){$('script[type="application/ld+json"]').each((_,e)=>{try{const d=JSON.parse($(e).text());for(const x of (Array.isArray(d)?d:[d])){for(const i of (x?.itemListElement||[])){const p=i.item||i,o=Number(p?.offers?.price??p?.price);if(p?.name&&Number.isFinite(o))add(out,{name:p.name,price:o,brand:p.brand?.name},url)}if(x?.["@type"]==="Product"&&x.name){const o=Number(x?.offers?.price);if(Number.isFinite(o))add(out,{name:x.name,price:o,brand:x.brand?.name},url)}}}catch{}})}
-function parse($,out,url){jsonld($,out,url);$("article,li,[class*='product'],[data-testid*='product']").each((_,e)=>{const t=clean($(e).text()),p=price(t);if(p==null)return;const n=clean($(e).find("h2,h3,h4,[class*='name'],[class*='title']").first().text());if(n)add(out,{name:n,price:p},url)})}
-function normalizeName(s){return clean(s).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase()}
-async function fetchOfficial(s,q){
- if(s.id==="aldi"){
-  const n=clean(q).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
-  let pages;
 
-  if(/lait|beurre|creme|yaourt|fromage|oeuf/.test(n))
-   pages=["https://www.aldi.fr/produits/produits-laitiers/creme-beurre.html"];
-  else if(/pate|riz|huile|sauce|conserve|epice|sel|farine/.test(n))
-   pages=["https://www.aldi.fr/produits/epicerie-salee.html"];
-  else if(/surgele|glace|frites/.test(n))
-   pages=["https://www.aldi.fr/produits/surgeles/fruit-legume.html"];
-  else if(/sandwich|lasagne|pizza|plat|burger|wrap/.test(n))
-   pages=["https://www.aldi.fr/produits/charcuterie/sandwich-plat-prepare.html"];
-  else
-   pages=["https://www.aldi.fr/offres-et-bons-plans.html"];
+const CATEGORIES = [
+  "Fruits & légumes",
+  "Viandes & poissons",
+  "Crèmerie",
+  "Charcuterie & traiteur",
+  "Surgelés",
+  "Bébé",
+  "Épicerie salée",
+  "Épicerie sucrée",
+  "Boissons",
+  "Pains & pâtisseries",
+  "Bio & écologie",
+  "Entretien",
+  "Maison",
+  "Animalerie"
+];
 
-  const all=[];
+const cache = new Map();
+const CACHE_MS = 5 * 60 * 1000;
 
-  for(const url of pages){
-   const r=await fetch(url,{
-    headers:{
-     "user-agent":"BudgetCoursesOfficialSource/2.1",
-     "accept":"text/html,application/xhtml+xml"
-    }
-   });
+function store(id) {
+  return STORES.find(x => x.id === id);
+}
 
-   if(!r.ok) throw Error("HTTP "+r.status);
+function clean(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-   const $=cheerio.load(await r.text());
-   const out=[];
-   parse($,out,url);
-   all.push(...out);
+function normalize(value) {
+  return clean(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function parsePrice(value) {
+  const text = clean(value)
+    .replace(/\u00a0/g, " ")
+    .replace(",", ".");
+
+  const match = text.match(
+    /(?:^|\s)(\d{1,3}(?:[ .]\d{3})*(?:\.\d{1,2})?)\s*€/
+  );
+
+  if (!match) {
+    return null;
   }
 
-  const products=all
-   .filter(p=>normalizeName(p.name).includes(n))
-   .slice(0,100)
-   .map(({key,...x})=>x);
+  const number = Number(
+    match[1]
+      .replace(/\s/g, "")
+      .replace(",", ".")
+  );
 
-  return {
-   verified:products.length>0,
-   sourceUrl:pages[0],
-   updatedAt:new Date().toISOString(),
-   products,
-   message:products.length
-    ?"Prix extraits des pages officielles ALDI France."
-    :"Aucun produit correspondant trouvé sur la source officielle ALDI."
-  };
- }
+  return Number.isFinite(number) ? number : null;
+}
 
- const url=s.search(q),hit=cache.get(url);
+function parseUnitPrice(value) {
+  const text = clean(value)
+    .replace(/\u00a0/g, " ")
+    .replace(",", ".");
 
- if(hit&&Date.now()-hit.t<CACHE_MS)
-  return hit.data;
+  const match = text.match(
+    /(?:KG|L)\s*=\s*(\d+(?:\.\d{1,2})?)/i
+  );
 
- const c=new AbortController();
- const tm=setTimeout(()=>c.abort(),12000);
+  if (!match) {
+    return null;
+  }
 
- try{
-  const r=await fetch(url,{
-   headers:{
-    "user-agent":"BudgetCoursesOfficialSource/2.0",
-    "accept":"text/html,application/xhtml+xml"
-   },
-   signal:c.signal
+  const number = Number(match[1]);
+
+  return Number.isFinite(number) ? number : null;
+}
+
+function parsePackSize(value) {
+  const text = clean(value);
+
+  const match = text.match(
+    /(?:\d+(?:[.,]\d+)?\s?(?:KG|G|MG|L|CL|ML)|\d+\s?X\s?\d+(?:[.,]\d+)?\s?(?:L|CL|ML|G|KG))/i
+  );
+
+  return match ? match[0] : null;
+}
+
+function addProduct(output, product, sourceUrl) {
+  if (!product || !product.name) {
+    return;
+  }
+
+  if (
+    product.price == null ||
+    !Number.isFinite(product.price)
+  ) {
+    return;
+  }
+
+  const name = clean(product.name);
+
+  if (name.length < 2) {
+    return;
+  }
+
+  const key =
+    normalize(name) +
+    "|" +
+    product.price +
+    "|" +
+    (product.packSize || "");
+
+  if (output.some(item => item.key === key)) {
+    return;
+  }
+
+  output.push({
+    id: Buffer.from(
+      sourceUrl + "|" + name
+    )
+      .toString("base64url")
+      .slice(0, 48),
+
+    name,
+
+    brand: product.brand || null,
+
+    category:
+      product.category ||
+      "Non classé",
+
+    packSize:
+      product.packSize ||
+      null,
+
+    price:
+      product.price,
+
+    unitPrice:
+      product.unitPrice ??
+      null,
+
+    currency: "EUR",
+
+    promotion:
+      product.promotion ||
+      null,
+
+    available:
+      product.available ??
+      null,
+
+    sourceUrl,
+
+    updatedAt:
+      new Date().toISOString(),
+
+    key
+  });
+}
+
+function parseJsonLd($, output, sourceUrl) {
+  $('script[type="application/ld+json"]').each((_, element) => {
+    try {
+      const raw = $(element).text();
+
+      if (!raw) {
+        return;
+      }
+
+      const data = JSON.parse(raw);
+
+      const objects = Array.isArray(data)
+        ? data
+        : [data];
+
+      for (const object of objects) {
+        if (!object) {
+          continue;
+        }
+
+        const products = [];
+
+        if (
+          object["@type"] === "Product" ||
+          object.name
+        ) {
+          products.push(object);
+        }
+
+        if (
+          Array.isArray(object.itemListElement)
+        ) {
+          for (const item of object.itemListElement) {
+            if (item && item.item) {
+              products.push(item.item);
+            } else if (item) {
+              products.push(item);
+            }
+          }
+        }
+
+        for (const product of products) {
+          const offers = Array.isArray(product.offers)
+            ? product.offers[0]
+            : product.offers;
+
+          const rawPrice =
+            offers?.price ??
+            product.price ??
+            null;
+
+          const price = Number(rawPrice);
+
+          if (
+            product.name &&
+            Number.isFinite(price)
+          ) {
+            addProduct(
+              output,
+              {
+                name: product.name,
+                price,
+                brand:
+                  typeof product.brand === "string"
+                    ? product.brand
+                    : product.brand?.name || null
+              },
+              sourceUrl
+            );
+          }
+        }
+      }
+    } catch (_) {
+      // JSON-LD non exploitable : on continue
+    }
+  });
+}
+
+function parseAldiCards($, output, sourceUrl) {
+  const selectors = [
+    "article",
+    "li",
+    "[class*='product']",
+    "[class*='Product']",
+    "[data-testid*='product']",
+    "[data-product]"
+  ];
+
+  $(selectors.join(",")).each((_, element) => {
+    const card = $(element);
+    const text = clean(card.text());
+
+    if (!text) {
+      return;
+    }
+
+    const price = parsePrice(text);
+
+    if (price == null) {
+      return;
+    }
+
+    let name = clean(
+      card
+        .find(
+          "h1,h2,h3,h4,h5,[class*='name'],[class*='Name'],[class*='title'],[class*='Title']"
+        )
+        .first()
+        .text()
+    );
+
+    if (!name) {
+      const lines = text
+        .split(/\n+/)
+        .map(clean)
+        .filter(Boolean);
+
+      name =
+        lines.find(line => {
+          const n = normalize(line);
+
+          return (
+            n.length >= 3 &&
+            !n.includes("kg =") &&
+            !n.includes("l =") &&
+            !n.includes("prix") &&
+            !/^\d+(?:[.,]\d+)?\s*€?$/.test(line)
+          );
+        }) || "";
+    }
+
+    if (!name) {
+      return;
+    }
+
+    const unitPrice =
+      parseUnitPrice(text);
+
+    const packSize =
+      parsePackSize(text);
+
+    addProduct(
+      output,
+      {
+        name,
+        price,
+        unitPrice,
+        packSize
+      },
+      sourceUrl
+    );
+  });
+}
+
+async function fetchPage(url) {
+  const response = await fetch(url, {
+    headers: {
+      "user-agent":
+        "BudgetCoursesOfficialSource/3.0",
+      "accept":
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "accept-language":
+        "fr-FR,fr;q=0.9,en;q=0.7"
+    }
   });
 
-  if(!r.ok) throw Error("HTTP "+r.status);
+  if (!response.ok) {
+    throw new Error(
+      "HTTP " + response.status
+    );
+  }
 
-  const $=cheerio.load(await r.text());
-  const out=[];
-  parse($,out,url);
+  return await response.text();
+}
 
-  const data={
-   verified:out.length>0,
-   sourceUrl:url,
-   updatedAt:new Date().toISOString(),
-   products:out.slice(0,100).map(({key,...x})=>x),
-   message:out.length
-    ?"Données extraites depuis une page officielle."
-    :"La page officielle ne fournit pas de prix exploitables sans contexte magasin/session."
+/*
+ * ALDI :
+ *
+ * Les pages officielles de catégories contiennent
+ * réellement les produits et leurs prix.
+ *
+ * On utilise plusieurs pages officielles plutôt qu'une
+ * seule page générique de recherche.
+ */
+const ALDI_CATEGORY_PAGES = [
+  "https://www.aldi.fr/produits/produits-laitiers/creme-beurre.html",
+  "https://www.aldi.fr/produits/produits-laitiers/fromage-a-tartiner.html",
+  "https://www.aldi.fr/produits/produits-laitiers/fromage-rape-tranche.html",
+  "https://www.aldi.fr/produits/epicerie-salee.html",
+  "https://www.aldi.fr/produits/epicerie-sucree.html",
+  "https://www.aldi.fr/produits/boissons.html",
+  "https://www.aldi.fr/produits/entretien/nettoyant-desordorissant.html"
+];
+
+/*
+ * Fiches ALDI officielles connues.
+ *
+ * IMPORTANT :
+ * On ne met PAS les prix en dur.
+ * Le serveur lit toujours le prix directement
+ * sur la fiche officielle.
+ */
+const ALDI_OFFICIAL_PRODUCTS = [
+  {
+    keywords: ["lait", "demi ecreme"],
+    url:
+      "https://www.aldi.fr/fiches-produits/lait-demi-ecreme-1870.html"
+  },
+  {
+    keywords: ["lait", "entier"],
+    url:
+      "https://www.aldi.fr/fiches-produits/lait-entier-brique-0601.html"
+  },
+  {
+    keywords: ["lait", "uht"],
+    url:
+      "https://www.aldi.fr/fiches-produits/lait-uht-demi-ecreme-0600.html"
+  }
+];
+
+async function fetchAldiProductPage(url) {
+  const html = await fetchPage(url);
+  const $ = cheerio.load(html);
+  const output = [];
+
+  parseJsonLd($, output, url);
+
+  const pageText = clean(
+    $("body").text()
+  );
+
+  const title = clean(
+    $("h1").first().text()
+  );
+
+  const price = parsePrice(
+    pageText
+  );
+
+  if (
+    title &&
+    price != null
+  ) {
+    const unitPrice =
+      parseUnitPrice(pageText);
+
+    const packSize =
+      parsePackSize(pageText);
+
+    addProduct(
+      output,
+      {
+        name: title,
+        price,
+        unitPrice,
+        packSize
+      },
+      url
+    );
+  }
+
+  return output;
+}
+
+async function fetchAldi(query) {
+  const normalizedQuery =
+    normalize(query);
+
+  const output = [];
+
+  /*
+   * 1. Pages officielles de rayons.
+   */
+  for (
+    const url of ALDI_CATEGORY_PAGES
+  ) {
+    try {
+      const html =
+        await fetchPage(url);
+
+      const $ =
+        cheerio.load(html);
+
+      parseJsonLd(
+        $,
+        output,
+        url
+      );
+
+      parseAldiCards(
+        $,
+        output,
+        url
+      );
+    } catch (error) {
+      console.log(
+        "ALDI category unavailable:",
+        url,
+        error.message
+      );
+    }
+  }
+
+  /*
+   * 2. Fiches produits officielles ciblées.
+   *
+   * Cela permet notamment de retrouver
+   * "lait" même si la page catégorie est
+   * rendue différemment par le serveur.
+   */
+  const matchingPages =
+    ALDI_OFFICIAL_PRODUCTS.filter(
+      item =>
+        item.keywords.some(keyword =>
+          normalizedQuery.includes(
+            normalize(keyword)
+          )
+        ) ||
+        normalizedQuery ===
+          normalize(
+            item.keywords.join(" ")
+          )
+    );
+
+  for (
+    const item of matchingPages
+  ) {
+    try {
+      const products =
+        await fetchAldiProductPage(
+          item.url
+        );
+
+      for (
+        const product of products
+      ) {
+        addProduct(
+          output,
+          product,
+          product.sourceUrl
+        );
+      }
+    } catch (error) {
+      console.log(
+        "ALDI product unavailable:",
+        item.url,
+        error.message
+      );
+    }
+  }
+
+  /*
+   * 3. Filtrage final.
+   *
+   * On ne garde que les produits dont
+   * le nom correspond réellement à la recherche.
+   */
+  const filtered =
+    output.filter(product => {
+      const name =
+        normalize(product.name);
+
+      const words =
+        normalizedQuery
+          .split(/\s+/)
+          .filter(Boolean);
+
+      return words.every(word =>
+        name.includes(word)
+      );
+    });
+
+  /*
+   * Suppression de la clé interne.
+   */
+  const products =
+    filtered
+      .slice(0, 100)
+      .map(
+        ({ key, ...product }) =>
+          product
+      );
+
+  return {
+    verified:
+      products.length > 0,
+
+    sourceUrl:
+      products[0]?.sourceUrl ||
+      "https://www.aldi.fr/liste-de-courses.html",
+
+    updatedAt:
+      new Date().toISOString(),
+
+    products,
+
+    message:
+      products.length > 0
+        ? "Prix extraits des pages officielles ALDI France."
+        : "Aucun produit correspondant trouvé sur les sources officielles ALDI."
+  };
+}
+
+async function fetchOfficial(storeInfo, query) {
+  /*
+   * ALDI possède son connecteur dédié.
+   */
+  if (
+    storeInfo.id === "aldi"
+  ) {
+    const cacheKey =
+      "aldi|" +
+      normalize(query);
+
+    const cached =
+      cache.get(cacheKey);
+
+    if (
+      cached &&
+      Date.now() - cached.time <
+        CACHE_MS
+    ) {
+      return cached.data;
+    }
+
+    const data =
+      await fetchAldi(query);
+
+    cache.set(
+      cacheKey,
+      {
+        time: Date.now(),
+        data
+      }
+    );
+
+    return data;
+  }
+
+  /*
+   * Autres enseignes :
+   * extraction prudente uniquement.
+   */
+  const url =
+    storeInfo.search(query);
+
+  const cached =
+    cache.get(url);
+
+  if (
+    cached &&
+    Date.now() - cached.time <
+      CACHE_MS
+  ) {
+    return cached.data;
+  }
+
+  const html =
+    await fetchPage(url);
+
+  const $ =
+    cheerio.load(html);
+
+  const output = [];
+
+  parseJsonLd(
+    $,
+    output,
+    url
+  );
+
+  parseAldiCards(
+    $,
+    output,
+    url
+  );
+
+  const data = {
+    verified:
+      output.length > 0,
+
+    sourceUrl:
+      url,
+
+    updatedAt:
+      new Date().toISOString(),
+
+    products:
+      output
+        .slice(0, 100)
+        .map(
+          ({ key, ...product }) =>
+            product
+        ),
+
+    message:
+      output.length > 0
+        ? "Données extraites depuis une page officielle."
+        : "La page officielle ne fournit pas de prix exploitables sans contexte magasin/session."
   };
 
-  cache.set(url,{t:Date.now(),data});
+  cache.set(
+    url,
+    {
+      time: Date.now(),
+      data
+    }
+  );
+
   return data;
- }finally{
-  clearTimeout(tm);
- }
-}app.get("/api/health",(_,r)=>r.json({ok:true,service:"budget-courses-server",version:"2.0.0",sources:"official-only",time:new Date().toISOString()}));
-app.get("/api/stores",(_,r)=>r.json(STORES.map(({id,name,officialUrl})=>({id,name,officialUrl}))));
-app.get("/api/stores/:store/locations",(q,r)=>{const s=store(q.params.store);if(!s)return r.status(404).json({error:"store_not_found"});r.json([{id:s.id+"-official",storeId:s.id,name:s.name+" — recherche officielle",postalCode:clean(q.query.postalCode),city:clean(q.query.city),verified:false,sourceUrl:s.officialUrl,message:"Le prix local dépend du magasin/Drive sélectionné sur le site officiel."}])});
-app.get("/api/stores/:store/locations/:locationId/categories",(q,r)=>store(q.params.store)?r.json(CATEGORIES):r.status(404).json({error:"store_not_found"}));
-app.get("/api/stores/:store/locations/:locationId/products",async(q,r)=>{const s=store(q.params.store);if(!s)return r.status(404).json({error:"store_not_found"});const term=clean(q.query.q)||"lait";try{const d=await fetchOfficial(s,term);r.json({store:s.id,locationId:q.params.locationId,query:term,...d})}catch(e){r.status(502).json({error:"official_source_unavailable",store:s.id,message:"La source officielle est indisponible ou nécessite une session/magasin.",sourceUrl:s.search(term)})}});
-app.listen(PORT,()=>console.log("Budget Courses server v2 listening on "+PORT));
+}
+
+app.get(
+  "/api/health",
+  (_, response) => {
+    response.json({
+      ok: true,
+      service:
+        "budget-courses-server",
+      version:
+        "3.0.0",
+      sources:
+        "official-only",
+      time:
+        new Date().toISOString()
+    });
+  }
+);
+
+app.get(
+  "/api/stores",
+  (_, response) => {
+    response.json(
+      STORES.map(
+        ({
+          id,
+          name,
+          officialUrl
+        }) => ({
+          id,
+          name,
+          officialUrl
+        })
+      )
+    );
+  }
+);
+
+app.get(
+  "/api/stores/:store/locations",
+  (request, response) => {
+    const storeInfo =
+      store(
+        request.params.store
+      );
+
+    if (!storeInfo) {
+      return response
+        .status(404)
+        .json({
+          error:
+            "store_not_found"
+        });
+    }
+
+    response.json([
+      {
+        id:
+          storeInfo.id +
+          "-official",
+
+        storeId:
+          storeInfo.id,
+
+        name:
+          storeInfo.name +
+          " — recherche officielle",
+
+        postalCode:
+          clean(
+            request.query.postalCode
+          ),
+
+        city:
+          clean(
+            request.query.city
+          ),
+
+        verified: false,
+
+        sourceUrl:
+          storeInfo.officialUrl,
+
+        message:
+          "Le prix local dépend du magasin/Drive sélectionné sur le site officiel."
+      }
+    ]);
+  }
+);
+
+app.get(
+  "/api/stores/:store/locations/:locationId/categories",
+  (request, response) => {
+    const storeInfo =
+      store(
+        request.params.store
+      );
+
+    if (!storeInfo) {
+      return response
+        .status(404)
+        .json({
+          error:
+            "store_not_found"
+        });
+    }
+
+    response.json(
+      CATEGORIES
+    );
+  }
+);
+
+app.get(
+  "/api/stores/:store/locations/:locationId/products",
+  async (
+    request,
+    response
+  ) => {
+    const storeInfo =
+      store(
+        request.params.store
+      );
+
+    if (!storeInfo) {
+      return response
+        .status(404)
+        .json({
+          error:
+            "store_not_found"
+        });
+    }
+
+    const query =
+      clean(
+        request.query.q
+      ) || "lait";
+
+    try {
+      const data =
+        await fetchOfficial(
+          storeInfo,
+          query
+        );
+
+      response.json({
+        store:
+          storeInfo.id,
+
+        locationId:
+          request.params.locationId,
+
+        query,
+
+        ...data
+      });
+    } catch (error) {
+      console.error(
+        "Official source error:",
+        error
+      );
+
+      response
+        .status(502)
+        .json({
+          error:
+            "official_source_unavailable",
+
+          store:
+            storeInfo.id,
+
+          message:
+            "La source officielle est indisponible ou nécessite une session/magasin.",
+
+          sourceUrl:
+            storeInfo.search(query)
+        });
+    }
+  }
+);
+
+app.listen(
+  PORT,
+  () => {
+    console.log(
+      "Budget Courses server listening on port " +
+        PORT
+    );
+  }
+);
+```
